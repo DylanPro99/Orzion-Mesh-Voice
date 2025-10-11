@@ -1,11 +1,11 @@
 {
-    "name": "workspace",
-    "short_name": "workspace",
+    "name": "Orzion Mesh",
+    "short_name": "Orzion Mesh",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Red de malla descentralizada Orzion Mesh",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
