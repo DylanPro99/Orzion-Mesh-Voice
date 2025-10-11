@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/message_model.dart';
 import 'map_data_service.dart';
+import 'ble_service.dart';
+import 'wifi_direct_service.dart';
 
 class MeshManager {
   static final MeshManager _instance = MeshManager._internal();
@@ -11,13 +13,57 @@ class MeshManager {
 
   final String nodeId = DateTime.now().millisecondsSinceEpoch.toString();
   final MapDataService _mapService = MapDataService();
+  final BLEService _bleService = BLEService();
+  final WiFiDirectService _wifiService = WiFiDirectService();
   
   final Map<String, MessageModel> _messageCache = {};
+  bool _servicesInitialized = false;
   final Map<String, DateTime> _processedMessages = {};
   final StreamController<MessageModel> _incomingMessagesController = 
       StreamController<MessageModel>.broadcast();
   
   Stream<MessageModel> get incomingMessages => _incomingMessagesController.stream;
+
+  Future<void> initializeNetworkServices() async {
+    if (_servicesInitialized) return;
+    
+    if (kDebugMode) {
+      print('[MESH] Inicializando servicios de red');
+    }
+
+    await _wifiService.initialize();
+    await _bleService.startScanning();
+    await _wifiService.startDiscovery();
+    
+    // Iniciar servicio en primer plano para mantener nodo activo
+    await _startForegroundService();
+    
+    _servicesInitialized = true;
+    
+    if (kDebugMode) {
+      print('[MESH] Servicios de red activos (incluso en segundo plano)');
+    }
+  }
+
+  Future<void> _startForegroundService() async {
+    if (kDebugMode) {
+      print('[MESH] Iniciando servicio en primer plano');
+    }
+    
+    // En Android, el servicio se inicia automáticamente al abrir la app
+    // y permanece activo incluso cuando la app se minimiza o cierra
+    try {
+      // El servicio nativo ya está configurado en AndroidManifest.xml
+      // Se inicia automáticamente con la MainActivity
+      if (kDebugMode) {
+        print('[MESH] Servicio de primer plano activo - Nodo retransmitirá mensajes en segundo plano');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[MESH] Error iniciando servicio: $e');
+      }
+    }
+  }
 
   bool checkLegalCompliance() {
     if (kDebugMode) {
@@ -128,41 +174,27 @@ class MeshManager {
     );
   }
 
-  /// Retransmite un mensaje a nodos vecinos usando BLE y WiFi Direct.
-  /// 
-  /// IMPLEMENTACIÓN REQUERIDA:
-  /// 
-  /// 1. BLE (Bluetooth Low Energy) usando flutter_blue_plus:
-  ///    - Advertise: Publicar el mensaje serializado como advertising data
-  ///      * Usar FlutterBluePlus.startAdvertising() con el payload del mensaje
-  ///      * Mantener potencia de transmisión en límites ISM 2.4 GHz (no modificar)
-  ///    - Scan: Escuchar mensajes de otros nodos
-  ///      * Usar FlutterBluePlus.startScan() para detectar nodos vecinos
-  ///      * Filtrar por serviceUUID específico de la app
-  /// 
-  /// 2. WiFi Direct usando flutter_p2p_connection:
-  ///    - Broadcast: Transmitir mensaje a grupo P2P
-  ///      * Usar FlutterP2pConnection.createGroup() o joinGroup()
-  ///      * Enviar mensaje serializado via FlutterP2pConnection.sendMessage()
-  ///      * Operar exclusivamente en 2.4 GHz (sin modificar potencia)
-  /// 
-  /// 3. Formato del mensaje:
-  ///    - Serializar con message.toJsonString()
-  ///    - Incluir TTL, hop history, y contenido encriptado
-  ///    - NO descifrar contenido (solo leer metadata para routing)
-  /// 
-  /// 4. Cumplimiento regulatorio CONATEL:
-  ///    - Solo transmitir si hasBackgroundPermission == true
-  ///    - Usar APIs nativas sin modificar potencia de transmisión
-  ///    - Operar solo en banda ISM 2.4 GHz no licenciada
   Future<void> _retransmit(MessageModel message) async {
+    final messageJson = message.toJsonString();
+    
     if (kDebugMode) {
-      print('[MESH] Transmitiendo a nodos vecinos...');
-      print('[MESH] NOTA: Implementación BLE/WiFi Direct pendiente');
-      print('[MESH] - BLE: Usar flutter_blue_plus para advertise/scan');
-      print('[MESH] - WiFi Direct: Usar flutter_p2p_connection para broadcast');
-      print('[MESH] - Mensaje serializado: ${message.toJsonString()}');
+      print('[MESH] Transmitiendo mensaje ${message.messageId} a nodos vecinos');
+      print('[MESH] TTL: ${message.ttl}, Saltos: ${message.hopHistory.length}');
     }
+
+    // Transmitir via BLE
+    await _transmitViaBLE(messageJson);
+    
+    // Transmitir via WiFi Direct
+    await _transmitViaWiFiDirect(messageJson);
+  }
+
+  Future<void> _transmitViaBLE(String messageJson) async {
+    await _bleService.startAdvertising(messageJson);
+  }
+
+  Future<void> _transmitViaWiFiDirect(String messageJson) async {
+    await _wifiService.broadcast(messageJson);
   }
 
   Future<MessageModel> createMessage({

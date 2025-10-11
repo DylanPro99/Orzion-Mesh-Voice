@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/mesh_manager.dart';
 import 'services/map_data_service.dart';
+import 'services/contacts_service.dart';
 import 'models/message_model.dart';
 
 void main() async {
@@ -36,21 +38,31 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final MeshManager _meshManager = MeshManager();
   final MapDataService _mapService = MapDataService();
+  final ContactsService _contactsService = ContactsService();
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
+  final TextEditingController _aliasController = TextEditingController();
   final String _encryptionKey = 'default-key-2025';
   
   bool _complianceChecked = false;
   bool _hasGpsPermission = false;
   bool _hasBackgroundPermission = false;
+  String? _selectedContactId;
 
   @override
   void initState() {
     super.initState();
+    _initServices();
     _checkCompliance();
     _meshManager.incomingMessages.listen((message) {
       setState(() {});
     });
+  }
+
+  Future<void> _initServices() async {
+    await _contactsService.init();
+    await _meshManager.initializeNetworkServices();
+    setState(() {});
   }
 
   void _checkCompliance() {
@@ -81,12 +93,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _sendMessage() async {
-    if (_messageController.text.isEmpty || _destinationController.text.isEmpty) {
+    final destinationId = _selectedContactId ?? _destinationController.text;
+    
+    if (_messageController.text.isEmpty || destinationId.isEmpty) {
       return;
     }
 
     await _meshManager.createMessage(
-      destinationId: _destinationController.text,
+      destinationId: destinationId,
       plainTextContent: _messageController.text,
       encryptionKey: _encryptionKey,
     );
@@ -98,6 +112,58 @@ class _HomePageState extends State<HomePage> {
         const SnackBar(content: Text('Mensaje enviado a la red de malla')),
       );
     }
+  }
+
+  Future<void> _showAddContactDialog() async {
+    _destinationController.clear();
+    _aliasController.clear();
+    
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Añadir Contacto'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _destinationController,
+              decoration: const InputDecoration(
+                labelText: 'Node ID del contacto',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _aliasController,
+              decoration: const InputDecoration(
+                labelText: 'Nombre / Alias',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_destinationController.text.isNotEmpty &&
+                  _aliasController.text.isNotEmpty) {
+                await _contactsService.addContact(
+                  _destinationController.text,
+                  _aliasController.text,
+                );
+                setState(() {});
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -127,9 +193,30 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Nodo ID: ${_meshManager.nodeId}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Nodo ID: ${_meshManager.nodeId.substring(0, 16)}...',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 20),
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: _meshManager.nodeId),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Node ID copiado al portapapeles'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      },
+                      tooltip: 'Copiar Node ID completo',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -164,12 +251,40 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                TextField(
-                  controller: _destinationController,
-                  decoration: const InputDecoration(
-                    labelText: 'ID del Destinatario',
-                    border: OutlineInputBorder(),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedContactId,
+                        decoration: const InputDecoration(
+                          labelText: 'Destinatario',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('Seleccionar contacto...'),
+                          ),
+                          ..._contactsService.getAllContacts().map(
+                                (contact) => DropdownMenuItem(
+                                  value: contact.nodeId,
+                                  child: Text(contact.alias),
+                                ),
+                              ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedContactId = value;
+                          });
+                        },
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.person_add),
+                      onPressed: _showAddContactDialog,
+                      tooltip: 'Añadir contacto',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -220,7 +335,9 @@ class _HomePageState extends State<HomePage> {
                         ),
                         child: ListTile(
                           leading: const Icon(Icons.message),
-                          title: Text('De: ${message.senderId}'),
+                          title: Text(
+                            'De: ${_contactsService.getDisplayName(message.senderId)}',
+                          ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -246,6 +363,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _messageController.dispose();
     _destinationController.dispose();
+    _aliasController.dispose();
     super.dispose();
   }
 }
