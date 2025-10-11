@@ -29,11 +29,19 @@ class MeshManager {
     
     if (kDebugMode) {
       print('[MESH] Inicializando servicios de red');
+      print('[MESH] ═══════════════════════════════════════════════════════');
+      print('[MESH] ARQUITECTURA DE RED DE MALLA:');
+      print('[MESH]   🔵 BLE = TRANSPORTE PRINCIPAL');
+      print('[MESH]      ✓ Descubrimiento de nodos');
+      print('[MESH]      ✓ Transmisión de mensajes');
+      print('[MESH]      ✓ Retransmisión multi-salto');
+      print('[MESH]   📶 WiFi Direct = DESHABILITADO');
+      print('[MESH]      (Incompatible con arquitectura de malla distribuida)');
+      print('[MESH] ═══════════════════════════════════════════════════════');
     }
 
     await _wifiService.initialize();
     await _bleService.startScanning();
-    await _wifiService.startDiscovery();
     
     // Iniciar servicio en primer plano para mantener nodo activo
     await _startForegroundService();
@@ -41,7 +49,7 @@ class MeshManager {
     _servicesInitialized = true;
     
     if (kDebugMode) {
-      print('[MESH] Servicios de red activos (incluso en segundo plano)');
+      print('[MESH] Red de malla activa (BLE) - Nodo retransmitirá mensajes');
     }
   }
 
@@ -50,11 +58,7 @@ class MeshManager {
       print('[MESH] Iniciando servicio en primer plano');
     }
     
-    // En Android, el servicio se inicia automáticamente al abrir la app
-    // y permanece activo incluso cuando la app se minimiza o cierra
     try {
-      // El servicio nativo ya está configurado en AndroidManifest.xml
-      // Se inicia automáticamente con la MainActivity
       if (kDebugMode) {
         print('[MESH] Servicio de primer plano activo - Nodo retransmitirá mensajes en segundo plano');
       }
@@ -77,7 +81,6 @@ class MeshManager {
     final hasBackground = _mapService.hasBackgroundConsent;
 
     complianceChecks.add('✓ Uso exclusivo de APIs oficiales de BLE (flutter_blue_plus) - 2.4 GHz');
-    complianceChecks.add('✓ Uso exclusivo de APIs oficiales de WiFi Direct (flutter_p2p_connection) - 2.4 GHz');
     complianceChecks.add('✓ No se modifica la potencia de transmisión (APIs nativas sin modificación)');
     complianceChecks.add('✓ Operación exclusiva en bandas no licenciadas ISM 2.4 GHz');
     complianceChecks.add(hasGps && hasBackground 
@@ -178,23 +181,15 @@ class MeshManager {
     final messageJson = message.toJsonString();
     
     if (kDebugMode) {
-      print('[MESH] Transmitiendo mensaje ${message.messageId} a nodos vecinos');
+      print('[MESH] Transmitiendo mensaje ${message.messageId} via BLE');
       print('[MESH] TTL: ${message.ttl}, Saltos: ${message.hopHistory.length}');
     }
 
-    // Transmitir via BLE
     await _transmitViaBLE(messageJson);
-    
-    // Transmitir via WiFi Direct
-    await _transmitViaWiFiDirect(messageJson);
   }
 
   Future<void> _transmitViaBLE(String messageJson) async {
     await _bleService.startAdvertising(messageJson);
-  }
-
-  Future<void> _transmitViaWiFiDirect(String messageJson) async {
-    await _wifiService.broadcast(messageJson);
   }
 
   Future<MessageModel> createMessage({
