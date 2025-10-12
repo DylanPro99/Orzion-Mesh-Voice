@@ -19,10 +19,20 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
-    <!-- Features requeridos -->
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
-    <uses-feature android:name="android.hardware.wifi.direct" android:required="true" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+    <!-- CRÍTICO: Permisos para servicio en primer plano (Android 9+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    
+    <!-- CRÍTICO: Permiso para notificaciones (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- Permiso para mantener CPU activo -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Features opcionales para mayor compatibilidad -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:label="Orzion Mesh"
@@ -33,6 +43,7 @@
         <service
             android:name=".MeshForegroundService"
             android:foregroundServiceType="connectedDevice"
+            android:enabled="true"
             android:exported="false" />
 
         <activity
