@@ -124,7 +124,7 @@ class BLEService {
         return;
       }
 
-      await startAdvertising();
+      // Solo iniciar escaneo - el advertising se hace cuando hay mensajes
       await startScanning();
     } catch (e) {
       print('Error inicializando BLE: $e');
