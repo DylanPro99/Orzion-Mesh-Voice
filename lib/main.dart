@@ -4,11 +4,42 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/mesh_manager.dart';
 import 'services/map_data_service.dart';
 import 'services/contacts_service.dart';
+import 'services/encryption_service.dart';
+import 'services/storage_service.dart';
 import 'models/message_model.dart';
+import 'models/stored_message.dart';
+import 'models/neighbor_node.dart';
+import 'screens/welcome_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/loading_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
+  
+  try {
+    await Hive.initFlutter();
+    
+    // Registrar adaptadores de Hive
+    if (!Hive.isAdapterRegistered(0)) {
+      Hive.registerAdapter(StoredMessageAdapter());
+    }
+    if (!Hive.isAdapterRegistered(1)) {
+      Hive.registerAdapter(MessageStatusAdapter());
+    }
+    if (!Hive.isAdapterRegistered(2)) {
+      Hive.registerAdapter(NeighborNodeAdapter());
+    }
+    
+    // Inicializar storage
+    await StorageService().initialize();
+    
+    debugPrint('✅ Hive inicializado correctamente');
+  } catch (e) {
+    debugPrint('❌ Error inicializando Hive: $e');
+  }
+  
   runApp(const OrzionMeshVoiceApp());
 }
 
@@ -19,11 +50,16 @@ class OrzionMeshVoiceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Orzion Mesh-Voice',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: const HomePage(),
+      theme: AppTheme.darkTheme,
+      initialRoute: '/welcome',
+      routes: {
+        '/welcome': (context) => const WelcomeScreen(),
+        '/onboarding': (context) => const OnboardingScreen(),
+        '/home': (context) => const HomePage(),
+        '/settings': (context) => const SettingsScreen(),
+        '/loading': (context) => const LoadingScreen(),
+      },
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -35,82 +71,221 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final MeshManager _meshManager = MeshManager();
   final MapDataService _mapService = MapDataService();
   final ContactsService _contactsService = ContactsService();
+  final EncryptionService _encryptionService = EncryptionService();
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
   final TextEditingController _aliasController = TextEditingController();
-  final String _encryptionKey = 'default-key-2025';
+  String? _encryptionKey;
   
   bool _complianceChecked = false;
   bool _hasGpsPermission = false;
   bool _hasBackgroundPermission = false;
   String? _selectedContactId;
+  bool _isInitializing = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initServices();
     _checkCompliance();
     _meshManager.incomingMessages.listen((message) {
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+        _showMessageNotification(message);
+      }
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _messageController.dispose();
+    _destinationController.dispose();
+    _aliasController.dispose();
+    super.dispose();
+  }
+
+  void _showMessageNotification(MessageModel message) {
+    if (!mounted) return;
+    
+    final decrypted = _encryptionKey != null
+        ? _meshManager.decryptMessage(message, _encryptionKey!)
+        : null;
+    final senderName = _contactsService.getDisplayName(message.senderId);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('📨 Mensaje de $senderName (${message.hopHistory.length} saltos)'),
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Ver',
+          onPressed: () {
+            setState(() {});
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _initServices() async {
-    await _contactsService.init();
-    await _meshManager.initializeNetworkServices();
-    setState(() {});
+    if (_isInitializing) return;
+    
+    setState(() {
+      _isInitializing = true;
+    });
+
+    try {
+      // Obtener o generar clave de cifrado segura
+      try {
+        _encryptionKey = await _encryptionService.getOrCreateEncryptionKey();
+      } catch (e) {
+        debugPrint('⚠️ Error generando clave de cifrado: $e');
+      }
+      
+      try {
+        await _contactsService.init();
+      } catch (e) {
+        debugPrint('⚠️ Error inicializando contactos: $e');
+      }
+      
+      bool hasFullFunctionality = false;
+      try {
+        hasFullFunctionality = await _meshManager.initializeNetworkServices();
+      } catch (e) {
+        debugPrint('⚠️ Error inicializando servicios de red: $e');
+      }
+      
+      // Mostrar mensaje informativo si hay limitaciones
+      if (mounted && !hasFullFunctionality) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('⚠️ Funcionalidad limitada: La app solo funciona en primer plano'),
+            backgroundColor: AppColors.gold,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error general inicializando servicios: $e');
+      
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('⚠️ Iniciado con funcionalidad limitada. Verifica permisos.'),
+            backgroundColor: AppColors.gold,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   void _checkCompliance() {
     final isCompliant = _meshManager.checkLegalCompliance();
-    setState(() {
-      _complianceChecked = isCompliant;
-    });
+    if (mounted) {
+      setState(() {
+        _complianceChecked = isCompliant;
+      });
+    }
   }
 
   Future<void> _requestPermissions() async {
-    final gps = await _mapService.requestGpsPermission();
-    final background = await _mapService.requestBackgroundPermission();
-    
-    setState(() {
-      _hasGpsPermission = gps;
-      _hasBackgroundPermission = background;
-    });
+    try {
+      final gps = await _mapService.requestGpsPermission();
+      final background = await _mapService.requestBackgroundPermission();
+      
+      if (mounted) {
+        setState(() {
+          _hasGpsPermission = gps;
+          _hasBackgroundPermission = background;
+        });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'GPS: ${gps ? "✓" : "✗"} | Segundo plano: ${background ? "✓" : "✗"}',
+        _checkCompliance();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              gps && background
+                  ? '✅ Permisos concedidos - Nodo activo'
+                  : '⚠️ Permisos faltantes - Funcionalidad limitada',
+            ),
+            backgroundColor: gps && background ? AppColors.gold : AppColors.surfaceLight,
           ),
-        ),
-      );
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error solicitando permisos: $e');
     }
   }
 
   Future<void> _sendMessage() async {
-    final destinationId = _selectedContactId ?? _destinationController.text;
+    final destinationId = _selectedContactId ?? _destinationController.text.trim();
+    final messageText = _messageController.text.trim();
     
-    if (_messageController.text.isEmpty || destinationId.isEmpty) {
+    if (messageText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Escribe un mensaje')),
+      );
       return;
     }
 
-    await _meshManager.createMessage(
-      destinationId: destinationId,
-      plainTextContent: _messageController.text,
-      encryptionKey: _encryptionKey,
-    );
-
-    _messageController.clear();
-    
-    if (mounted) {
+    if (destinationId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mensaje enviado a la red de malla')),
+        const SnackBar(content: Text('⚠️ Selecciona un destinatario')),
       );
+      return;
+    }
+
+    if (_encryptionKey == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Clave de cifrado no disponible')),
+      );
+      return;
+    }
+
+    try {
+      await _meshManager.createMessage(
+        destinationId: destinationId,
+        plainTextContent: messageText,
+        encryptionKey: _encryptionKey!,
+      );
+
+      _messageController.clear();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('✅ Mensaje enviado a la red de malla'),
+            backgroundColor: AppColors.gold,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error enviando mensaje: $e');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -130,6 +305,7 @@ class _HomePageState extends State<HomePage> {
               decoration: const InputDecoration(
                 labelText: 'Node ID del contacto',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.fingerprint),
               ),
             ),
             const SizedBox(height: 16),
@@ -138,7 +314,9 @@ class _HomePageState extends State<HomePage> {
               decoration: const InputDecoration(
                 labelText: 'Nombre / Alias',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person),
               ),
+              textCapitalization: TextCapitalization.words,
             ),
           ],
         ),
@@ -149,14 +327,18 @@ class _HomePageState extends State<HomePage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (_destinationController.text.isNotEmpty &&
-                  _aliasController.text.isNotEmpty) {
+              if (_destinationController.text.trim().isNotEmpty &&
+                  _aliasController.text.trim().isNotEmpty) {
                 await _contactsService.addContact(
-                  _destinationController.text,
-                  _aliasController.text,
+                  _destinationController.text.trim(),
+                  _aliasController.text.trim(),
                 );
                 setState(() {});
                 if (context.mounted) Navigator.pop(context);
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('✅ Contacto añadido')),
+                );
               }
             },
             child: const Text('Guardar'),
@@ -171,45 +353,68 @@ class _HomePageState extends State<HomePage> {
     final messages = _meshManager.getReceivedMessages();
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Orzion Mesh-Voice MVP'),
+        backgroundColor: AppColors.surface,
+        title: const Text(
+          'Orzion Mesh',
+          style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             icon: Icon(
               _complianceChecked ? Icons.verified : Icons.warning,
-              color: _complianceChecked ? Colors.green : Colors.red,
+              color: _complianceChecked ? AppColors.gold : AppColors.textSecondary,
             ),
             onPressed: _checkCompliance,
             tooltip: 'Verificar cumplimiento CONATEL',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: AppColors.gold),
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
+            tooltip: 'Configuración',
           ),
         ],
       ),
       body: Column(
         children: [
+          // Panel de información del nodo
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.blue.shade50,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border(
+                bottom: BorderSide(color: AppColors.greyDark),
+              ),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
+                    const Icon(Icons.router, color: AppColors.gold),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Nodo ID: ${_meshManager.nodeId.substring(0, 16)}...',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        'Nodo: ${_meshManager.nodeId.substring(0, 16)}...',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.copy, size: 20),
+                      icon: const Icon(Icons.copy, size: 20, color: AppColors.gold),
                       onPressed: () {
                         Clipboard.setData(
                           ClipboardData(text: _meshManager.nodeId),
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Node ID copiado al portapapeles'),
+                            content: Text('✅ Node ID copiado'),
                             duration: Duration(seconds: 1),
                           ),
                         );
@@ -218,35 +423,40 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        'GPS: ${_hasGpsPermission ? "✓ Activo" : "✗ Inactivo"}',
-                        style: TextStyle(
-                          color: _hasGpsPermission ? Colors.green : Colors.red,
-                        ),
+                      child: _buildStatusChip(
+                        'GPS',
+                        _hasGpsPermission,
+                        Icons.location_on,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'Retransmisión: ${_hasBackgroundPermission ? "✓ Activo" : "✗ Inactivo"}',
-                        style: TextStyle(
-                          color: _hasBackgroundPermission ? Colors.green : Colors.red,
-                        ),
+                      child: _buildStatusChip(
+                        'Retransmisión',
+                        _hasBackgroundPermission,
+                        Icons.repeat,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _requestPermissions,
-                  child: const Text('Solicitar Permisos (Doble Opt-in)'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isInitializing ? null : _requestPermissions,
+                    icon: const Icon(Icons.security),
+                    label: const Text('Solicitar Permisos (Doble Opt-in)'),
+                  ),
                 ),
               ],
             ),
           ),
+          
+          // Panel de envío de mensajes
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -259,6 +469,7 @@ class _HomePageState extends State<HomePage> {
                         decoration: const InputDecoration(
                           labelText: 'Destinatario',
                           border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person_outline),
                         ),
                         items: [
                           const DropdownMenuItem(
@@ -286,65 +497,130 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _messageController,
                   decoration: const InputDecoration(
                     labelText: 'Mensaje',
                     border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.message),
+                    hintText: 'Escribe tu mensaje cifrado...',
                   ),
                   maxLines: 2,
+                  textCapitalization: TextCapitalization.sentences,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _sendMessage,
-                    child: const Text('Enviar Mensaje'),
+                  child: ElevatedButton.icon(
+                    onPressed: _isInitializing ? null : _sendMessage,
+                    icon: const Icon(Icons.send),
+                    label: const Text('Enviar Mensaje Cifrado'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+          
           const Divider(),
-          const Padding(
-            padding: EdgeInsets.all(8),
-            child: Text(
-              'Mensajes Recibidos',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          
+          // Lista de mensajes recibidos
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Mensajes Recibidos',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (messages.isNotEmpty)
+                  Chip(
+                    label: Text(
+                      '${messages.length}',
+                      style: const TextStyle(color: AppColors.background),
+                    ),
+                    backgroundColor: AppColors.gold,
+                  ),
+              ],
             ),
           ),
+          
           Expanded(
             child: messages.isEmpty
                 ? const Center(
-                    child: Text('No hay mensajes recibidos'),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inbox, size: 64, color: AppColors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No hay mensajes recibidos',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
                   )
                 : ListView.builder(
                     itemCount: messages.length,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     itemBuilder: (context, index) {
                       final message = messages[index];
-                      final decrypted = _meshManager.decryptMessage(
-                        message,
-                        _encryptionKey,
-                      );
+                      final decrypted = _encryptionKey != null 
+                          ? _meshManager.decryptMessage(message, _encryptionKey!)
+                          : null;
+                      final senderName = _contactsService.getDisplayName(message.senderId);
                       
                       return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: AppColors.surface,
                         child: ListTile(
-                          leading: const Icon(Icons.message),
+                          leading: CircleAvatar(
+                            backgroundColor: AppColors.gold.withOpacity(0.2),
+                            child: const Icon(Icons.message, color: AppColors.gold),
+                          ),
                           title: Text(
-                            'De: ${_contactsService.getDisplayName(message.senderId)}',
+                            'De: $senderName',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(decrypted ?? '[Encriptado]'),
+                              const SizedBox(height: 4),
                               Text(
-                                '${message.hopHistory.length} saltos | TTL: ${message.ttl}',
-                                style: const TextStyle(fontSize: 12),
+                                decrypted ?? '🔒 [Mensaje cifrado]',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.route,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${message.hopHistory.length} ${message.hopHistory.length == 1 ? "salto" : "saltos"} • TTL: ${message.ttl}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -359,11 +635,45 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  @override
-  void dispose() {
-    _messageController.dispose();
-    _destinationController.dispose();
-    _aliasController.dispose();
-    super.dispose();
+  Widget _buildStatusChip(String label, bool isActive, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      decoration: BoxDecoration(
+        color: isActive ? AppColors.gold.withOpacity(0.2) : AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isActive ? AppColors.gold : AppColors.greyDark,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: isActive ? AppColors.gold : AppColors.grey,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isActive ? AppColors.gold : AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(
+            isActive ? Icons.check_circle : Icons.cancel,
+            size: 14,
+            color: isActive ? AppColors.gold : AppColors.grey,
+          ),
+        ],
+      ),
+    );
   }
 }
