@@ -1,4 +1,63 @@
+package com.orzion.mesh
 
+import android.app.Service
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import androidx.core.app.NotificationCompat
+
+class MeshForegroundService : Service() {
+
+    companion object {
+        const val NOTIFICATION_ID = 1
+        const val CHANNEL_ID = "mesh_foreground_channel"
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Orzion Mesh")
+            .setContentText("Nodo activo - Retransmitiendo mensajes")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
+
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                CHANNEL_ID,
+                "Mesh Network Service",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Mantiene el nodo activo para retransmitir mensajes"
+                setShowBadge(false)
+            }
+
+            val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+}
 package com.orzion.mesh
 
 import android.app.*
@@ -8,9 +67,8 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
 class MeshForegroundService : Service() {
-    
     companion object {
-        const val CHANNEL_ID = "orzion_mesh_channel"
+        const val CHANNEL_ID = "mesh_service_channel"
         const val NOTIFICATION_ID = 1
     }
 
@@ -21,20 +79,21 @@ class MeshForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // El servicio mantiene BLE/WiFi activos mientras la app está minimizada
-        return START_STICKY // Se reinicia automáticamente si el sistema lo mata
+        return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Orzion Mesh Network",
-                NotificationManager.IMPORTANCE_LOW // Silencioso
+                "Orzion Mesh Network Service",
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Mantiene tu nodo activo en la red de malla"
+                description = "Mantiene la red de malla activa en segundo plano"
             }
             
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -43,20 +102,11 @@ class MeshForegroundService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 
-            0, 
-            intent, 
-            PendingIntent.FLAG_IMMUTABLE
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Orzion Mesh Activo")
-            .setContentText("Tu nodo está retransmitiendo mensajes")
+            .setContentText("Retransmitiendo mensajes en la red")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true) // No se puede deslizar para cerrar
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 }
