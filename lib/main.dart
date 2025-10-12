@@ -8,7 +8,13 @@ import 'models/message_model.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Hive.initFlutter();
+  
+  try {
+    await Hive.initFlutter();
+  } catch (e) {
+    print('Error inicializando Hive: $e');
+  }
+  
   runApp(const OrzionMeshVoiceApp());
 }
 
@@ -60,9 +66,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _initServices() async {
-    await _contactsService.init();
-    await _meshManager.initializeNetworkServices();
-    setState(() {});
+    try {
+      await _contactsService.init();
+      await _meshManager.initializeNetworkServices();
+      setState(() {});
+    } catch (e) {
+      print('Error inicializando servicios: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al inicializar: $e')),
+        );
+      }
+    }
   }
 
   void _checkCompliance() {
