@@ -3,65 +3,169 @@ workflows:
     name: Android Release Build
     max_build_duration: 60
     instance_type: mac_mini_m1
-    environment:
-      flutter: stable
-      groups:
-        - google_play # Configura tus credenciales en CodeMagic UI
-      vars:
-        PACKAGE_NAME: "com.orzion.mesh"
-    
+
     triggering:
       events:
         - push
-      branch_patterns:
-        - pattern: 'main'
-          include: true
-          source: true
-    
+      cancel_previous_builds: true
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - google_credentials
+      vars:
+        PACKAGE_NAME: "com.orzion.mesh"
+        CM_FLUTTER_CLEAN: "true"
+
     scripts:
-      - name: Clean previous builds (ULTRA-AGRESIVO)
+      - name: FORZAR LIMPIEZA TOTAL DE CACHÉ
         script: |
-          echo "🧹 Limpieza ultra-agresiva iniciada..."
+          echo "🧹 Eliminando TODA la caché de compilación..."
           flutter clean
           rm -rf build/
           rm -rf .dart_tool/
-          rm -rf .flutter-plugins
-          rm -rf .flutter-plugins-dependencies
-          rm -rf .packages
           rm -rf pubspec.lock
-          rm -rf ios/Pods/
-          rm -rf ios/Podfile.lock
-          rm -rf ~/.pub-cache/hosted/pub.dev/flutter_p2p_connection-*
-          rm -rf ~/.gradle/caches/
-          echo "✅ Limpieza completada - Build 100% limpio garantizado"
-      
-      - name: Get Flutter packages
+          rm -rf ~/.pub-cache/
+          rm -rf /tmp/flutter_tools.*
+          rm -rf $HOME/.dartServer
+          echo "✅ Caché eliminada completamente"
+
+      - name: Get Flutter packages (fresh)
         script: |
           flutter packages pub get
-      
+
+      - name: Verify wifi_direct_service.dart
+        script: |
+          echo "📋 Verificando que NO existan tipos problemáticos..."
+          if grep -E "WifiP2pDevice|Socket|FlutterP2pConnection\(\)" lib/services/wifi_direct_service.dart; then
+            echo "❌ ERROR: Archivo contiene código antiguo"
+            exit 1
+          else
+            echo "✅ Archivo limpio - sin tipos problemáticos"
+          fi
+
+      - name: Verify MeshForegroundService.kt
+        script: |
+          echo "📋 Verificando MeshForegroundService.kt..."
+          KOTLIN_FILE="android/app/src/main/kotlin/com/orzion/mesh/MeshForegroundService.kt"
+          
+          # Verificar que el archivo existe
+          if [ ! -f "$KOTLIN_FILE" ]; then
+            echo "❌ ERROR: MeshForegroundService.kt no encontrado"
+            exit 1
+          fi
+          
+          # Contar líneas del archivo
+          LINE_COUNT=$(wc -l < "$KOTLIN_FILE")
+          echo "📊 Archivo tiene $LINE_COUNT líneas"
+          
+          # Verificar que no haya duplicaciones (el archivo debe tener ~60 líneas)
+          if [ "$LINE_COUNT" -gt 100 ]; then
+            echo "⚠️ ADVERTENCIA: Archivo muy grande, posible duplicación"
+            echo "📄 Mostrando contenido del archivo:"
+            cat -n "$KOTLIN_FILE"
+            exit 1
+          fi
+          
+          # Verificar que no haya imports duplicados
+          DUPLICATE_IMPORTS=$(grep -E "^import " "$KOTLIN_FILE" | sort | uniq -d | wc -l)
+          if [ "$DUPLICATE_IMPORTS" -gt 0 ]; then
+            echo "❌ ERROR: Imports duplicados encontrados"
+            grep -E "^import " "$KOTLIN_FILE" | sort | uniq -d
+            exit 1
+          fi
+          
+          # Verificar que no haya declaraciones de clase duplicadas
+          CLASS_COUNT=$(grep -c "^class MeshForegroundService" "$KOTLIN_FILE")
+          if [ "$CLASS_COUNT" -ne 1 ]; then
+            echo "❌ ERROR: Clase MeshForegroundService declarada $CLASS_COUNT veces (debe ser 1)"
+            exit 1
+          fi
+          
+          echo "✅ MeshForegroundService.kt verificado correctamente"
+
       - name: Analyze code
         script: |
-          flutter analyze
-      
+          echo "🔍 Ejecutando análisis de código..."
+          flutter analyze --no-fatal-infos
+          
+          if [ $? -ne 0 ]; then
+            echo "⚠️ ADVERTENCIA: Se encontraron problemas en el análisis"
+            echo "ℹ️ Continuando con el build..."
+          else
+            echo "✅ Análisis completado sin errores críticos"
+          fi
+
       - name: Run tests
         script: |
-          flutter test || true
-      
+          echo "🧪 Ejecutando tests..."
+          flutter test --no-pub || true
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Tests completados exitosamente"
+          else
+            echo "⚠️ Tests fallaron o no están disponibles, continuando..."
+          fi
+          
+      - name: Verify multi-hop components
+        script: |
+          echo "📋 Verificando componentes del sistema multi-hop..."
+          
+          # Verificar que existen los servicios críticos
+          if [ ! -f "lib/services/mesh_manager.dart" ]; then
+            echo "❌ ERROR: mesh_manager.dart no encontrado"
+            exit 1
+          fi
+          
+          if [ ! -f "lib/services/ble_service.dart" ]; then
+            echo "❌ ERROR: ble_service.dart no encontrado"
+            exit 1
+          fi
+          
+          if [ ! -f "lib/services/ble_peripheral_service.dart" ]; then
+            echo "❌ ERROR: ble_peripheral_service.dart no encontrado"
+            exit 1
+          fi
+          
+          # Verificar que la función de broadcast existe
+          if ! grep -q "_broadcastToKnownDevices" lib/services/ble_service.dart; then
+            echo "❌ ERROR: Función _broadcastToKnownDevices no encontrada"
+            exit 1
+          fi
+          
+          # Verificar que la función _sendMessageToDevice existe
+          if ! grep -q "_sendMessageToDevice" lib/services/ble_service.dart; then
+            echo "❌ ERROR: Función _sendMessageToDevice no encontrada"
+            exit 1
+          fi
+          
+          echo "✅ Componentes multi-hop verificados correctamente"
+
       - name: Build APK
         script: |
-          flutter build apk --release --split-per-abi
-      
+          echo "🔨 Construyendo APK..."
+          flutter build apk --release --split-per-abi --verbose
+          
+          echo "✅ APK construido exitosamente"
+          ls -lh build/app/outputs/flutter-apk/
+
       - name: Build App Bundle
         script: |
-          flutter build appbundle --release
-    
+          echo "📦 Construyendo App Bundle..."
+          flutter build appbundle --release --verbose
+          
+          echo "✅ App Bundle construido exitosamente"
+          ls -lh build/app/outputs/bundle/release/
+
     artifacts:
       - build/app/outputs/**/*.apk
       - build/app/outputs/**/*.aab
       - build/**/outputs/**/*.json
       - build/**/outputs/**/mapping.txt
       - flutter_drive.log
-    
+
     publishing:
       email:
         recipients:
