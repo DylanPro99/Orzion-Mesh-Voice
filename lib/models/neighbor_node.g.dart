@@ -25,7 +25,7 @@ class NeighborNodeAdapter extends TypeAdapter<NeighborNode> {
       longitude: fields[5] as double?,
       successfulRelays: fields[6] as int,
       failedRelays: fields[7] as int,
-      firstSeen: fields[8] as DateTime?,
+      firstSeen: fields[8] as DateTime,
       batteryLevel: fields[9] as int,
     );
   }

@@ -1,227 +1,154 @@
-import '../config/security_constants.dart';
+import 'package:flutter/foundation.dart';
 
-/// Excepción personalizada para errores de validación
-class ValidationException implements Exception {
-  final String message;
-  
-  ValidationException(this.message);
-  
-  @override
-  String toString() => 'ValidationException: $message';
-}
-
-/// Utilidad estática para validación de datos en Orzion Mesh
-/// Provee métodos de validación y sanitización para asegurar integridad de datos
 class ValidationUtility {
-  ValidationUtility._();
+  /// Valida si un Node ID tiene el formato correcto
+  static bool isValidNodeId(String nodeId) {
+    if (nodeId.isEmpty) return false;
+    
+    // Node ID debe tener al menos 8 caracteres y máximo 64
+    if (nodeId.length < 8 || nodeId.length > 64) return false;
+    
+    // Solo permitir caracteres alfanuméricos
+    final alphanumericRegex = RegExp(r'^[a-zA-Z0-9]+$');
+    return alphanumericRegex.hasMatch(nodeId);
+  }
 
-  /// Valida el contenido de un mensaje
-  /// Lanza [ValidationException] si el contenido es inválido
-  /// 
-  /// Reglas:
-  /// - Longitud mínima: [SecurityConstants.minMessageLength]
-  /// - Longitud máxima: [SecurityConstants.maxMessageLength]
-  /// 
-  /// TODO: Añadir test para contenido vacío
-  /// TODO: Añadir test para mensajes muy largos
-  static bool validateMessageContent(String content) {
-    if (content.isEmpty) {
-      throw ValidationException(
-        'El contenido del mensaje no puede estar vacío'
-      );
-    }
-
-    if (content.length < SecurityConstants.minMessageLength) {
-      throw ValidationException(
-        'El mensaje es demasiado corto. Mínimo: ${SecurityConstants.minMessageLength} caracteres'
-      );
-    }
-
-    if (content.length > SecurityConstants.maxMessageLength) {
-      throw ValidationException(
-        'El mensaje excede el tamaño máximo permitido. '
-        'Máximo: ${SecurityConstants.maxMessageLength} caracteres, '
-        'Actual: ${content.length} caracteres'
-      );
-    }
-
+  /// Valida si un alias de contacto es válido
+  static bool isValidContactAlias(String alias) {
+    if (alias.isEmpty) return false;
+    
+    // Alias debe tener entre 1 y 32 caracteres
+    if (alias.length > 32) return false;
+    
+    // No permitir solo espacios
+    if (alias.trim().isEmpty) return false;
+    
     return true;
   }
 
-  /// Valida el TTL (Time To Live) de un mensaje
-  /// Lanza [ValidationException] si el TTL es inválido
-  /// 
-  /// Reglas:
-  /// - Debe ser mayor o igual a 1
-  /// - Debe ser menor o igual a [SecurityConstants.maxTTL]
-  /// 
-  /// TODO: Añadir test para TTL = 0
-  /// TODO: Añadir test para TTL negativo
-  /// TODO: Añadir test para TTL > maxTTL
-  static bool validateTTL(int ttl) {
-    if (ttl < 1) {
-      throw ValidationException(
-        'El TTL debe ser al menos 1. Valor recibido: $ttl'
-      );
-    }
-
-    if (ttl > SecurityConstants.maxTTL) {
-      throw ValidationException(
-        'El TTL excede el máximo permitido. '
-        'Máximo: ${SecurityConstants.maxTTL}, '
-        'Valor recibido: $ttl'
-      );
-    }
-
+  /// Valida si un mensaje tiene contenido válido
+  static bool isValidMessage(String message) {
+    if (message.isEmpty) return false;
+    
+    // Mensaje no puede ser solo espacios
+    if (message.trim().isEmpty) return false;
+    
+    // Mensaje no puede ser demasiado largo (máximo 1000 caracteres)
+    if (message.length > 1000) return false;
+    
     return true;
   }
 
-  /// Valida el ID de un nodo
-  /// Lanza [ValidationException] si el nodeId es inválido
-  /// 
-  /// Reglas:
-  /// - No puede estar vacío
-  /// - Longitud mínima: [SecurityConstants.minNodeIdLength]
-  /// - Longitud máxima: [SecurityConstants.maxNodeIdLength]
-  /// - Solo caracteres alfanuméricos y guiones
-  /// 
-  /// TODO: Añadir test para nodeId vacío
-  /// TODO: Añadir test para nodeId con caracteres especiales
-  /// TODO: Añadir test para longitud inválida
-  static bool validateNodeId(String nodeId) {
-    if (nodeId.isEmpty) {
-      throw ValidationException(
-        'El ID del nodo no puede estar vacío'
-      );
-    }
-
-    if (nodeId.length < SecurityConstants.minNodeIdLength) {
-      throw ValidationException(
-        'El ID del nodo es demasiado corto. '
-        'Mínimo: ${SecurityConstants.minNodeIdLength} caracteres, '
-        'Actual: ${nodeId.length} caracteres'
-      );
-    }
-
-    if (nodeId.length > SecurityConstants.maxNodeIdLength) {
-      throw ValidationException(
-        'El ID del nodo excede el tamaño máximo. '
-        'Máximo: ${SecurityConstants.maxNodeIdLength} caracteres, '
-        'Actual: ${nodeId.length} caracteres'
-      );
-    }
-
-    // Validar que solo contenga caracteres seguros (alfanuméricos y guiones)
-    final validPattern = RegExp(r'^[a-zA-Z0-9\-_]+$');
-    if (!validPattern.hasMatch(nodeId)) {
-      throw ValidationException(
-        'El ID del nodo contiene caracteres inválidos. '
-        'Solo se permiten letras, números, guiones y guiones bajos'
-      );
-    }
-
-    return true;
+  /// Valida si un TTL es válido
+  static bool isValidTTL(int ttl) {
+    return ttl > 0 && ttl <= 15;
   }
 
-  /// Valida coordenadas GPS
-  /// Lanza [ValidationException] si las coordenadas son inválidas
-  /// 
-  /// Reglas:
-  /// - Latitud: entre -90 y 90 grados
-  /// - Longitud: entre -180 y 180 grados
-  /// - null es válido (ubicación no disponible)
-  /// 
-  /// TODO: Añadir test para coordenadas válidas
-  /// TODO: Añadir test para latitud fuera de rango
-  /// TODO: Añadir test para longitud fuera de rango
-  /// TODO: Añadir test para valores null
-  static bool validateGPS(double? latitude, double? longitude) {
-    // null es válido (ubicación no disponible)
-    if (latitude == null && longitude == null) {
-      return true;
-    }
-
-    // Si uno está presente, ambos deben estarlo
-    if (latitude == null || longitude == null) {
-      throw ValidationException(
-        'Si se proporciona una coordenada GPS, ambas (latitud y longitud) deben estar presentes'
-      );
-    }
-
-    // Validar rango de latitud
-    if (latitude < SecurityConstants.minLatitude || 
-        latitude > SecurityConstants.maxLatitude) {
-      throw ValidationException(
-        'Latitud fuera de rango. '
-        'Debe estar entre ${SecurityConstants.minLatitude} y ${SecurityConstants.maxLatitude}. '
-        'Valor recibido: $latitude'
-      );
-    }
-
-    // Validar rango de longitud
-    if (longitude < SecurityConstants.minLongitude || 
-        longitude > SecurityConstants.maxLongitude) {
-      throw ValidationException(
-        'Longitud fuera de rango. '
-        'Debe estar entre ${SecurityConstants.minLongitude} y ${SecurityConstants.maxLongitude}. '
-        'Valor recibido: $longitude'
-      );
-    }
-
-    return true;
-  }
-
-  /// Sanitiza un string eliminando caracteres peligrosos
-  /// 
-  /// Elimina:
-  /// - Caracteres de control
-  /// - Scripts potencialmente maliciosos
-  /// - Null bytes
-  /// - Caracteres no imprimibles
-  /// 
-  /// Retorna el string limpio
-  /// 
-  /// TODO: Añadir test para strings con caracteres de control
-  /// TODO: Añadir test para strings con null bytes
-  /// TODO: Añadir test para strings limpios (sin cambios)
+  /// Sanitiza un string para uso seguro
   static String sanitizeString(String input) {
-    if (input.isEmpty) {
-      return input;
-    }
-
-    // Eliminar caracteres de control (excepto saltos de línea y tabs normales)
-    String sanitized = input.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]'), '');
+    if (input.isEmpty) return '';
     
-    // Eliminar null bytes
-    sanitized = sanitized.replaceAll('\u0000', '');
+    // Remover caracteres de control y caracteres especiales peligrosos
+    final sanitized = input.replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '');
     
-    // Eliminar etiquetas de script obvias (básico)
-    sanitized = sanitized.replaceAll(RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false), '');
-    
-    // Eliminar intentos de inyección SQL básicos
-    sanitized = sanitized.replaceAll(RegExp(r'(\b(DROP|DELETE|INSERT|UPDATE|SELECT)\b.*\b(TABLE|FROM|WHERE)\b)', caseSensitive: false), '');
-    
-    return sanitized;
+    // Limitar longitud
+    return sanitized.length > 1000 ? sanitized.substring(0, 1000) : sanitized;
   }
 
-  /// Valida múltiples campos a la vez para un mensaje completo
-  /// Lanza [ValidationException] al primer campo inválido
-  /// 
-  /// TODO: Añadir test para validación completa de mensaje
-  static bool validateMessage({
-    required String content,
-    required int ttl,
-    required String senderId,
-    required String destinationId,
-    double? latitude,
-    double? longitude,
-  }) {
-    validateMessageContent(content);
-    validateTTL(ttl);
-    validateNodeId(senderId);
-    validateNodeId(destinationId);
-    validateGPS(latitude, longitude);
+  /// Valida si una coordenada GPS es válida
+  static bool isValidGPSCoordinate(double coordinate, bool isLatitude) {
+    if (isLatitude) {
+      return coordinate >= -90.0 && coordinate <= 90.0;
+    } else {
+      return coordinate >= -180.0 && coordinate <= 180.0;
+    }
+  }
+
+  /// Valida si un RSSI es válido
+  static bool isValidRSSI(int rssi) {
+    // RSSI típicamente va de -100 dBm a 0 dBm
+    return rssi >= -100 && rssi <= 0;
+  }
+
+  /// Valida si un nivel de batería es válido
+  static bool isValidBatteryLevel(int batteryLevel) {
+    return batteryLevel >= 0 && batteryLevel <= 100;
+  }
+
+  /// Valida formato de UUID
+  static bool isValidUUID(String uuid) {
+    final uuidRegex = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    );
+    return uuidRegex.hasMatch(uuid);
+  }
+
+  /// Valida si una clave de cifrado es segura
+  static bool isSecureEncryptionKey(String key) {
+    if (key.length < 32) return false;
+    
+    // Verificar diversidad de caracteres
+    final uniqueChars = key.split('').toSet().length;
+    if (uniqueChars < 16) return false;
+    
+    // No permitir secuencias simples
+    if (_hasSimplePattern(key)) return false;
     
     return true;
+  }
+
+  /// Detecta patrones simples en una clave
+  static bool _hasSimplePattern(String key) {
+    // Detectar repeticiones excesivas
+    final chars = key.split('');
+    final charCounts = <String, int>{};
+    
+    for (final char in chars) {
+      charCounts[char] = (charCounts[char] ?? 0) + 1;
+    }
+    
+    // Si algún carácter aparece en más del 30% de la clave, es sospechoso
+    final maxCount = charCounts.values.reduce((a, b) => a > b ? a : b);
+    return maxCount > key.length * 0.3;
+  }
+
+  /// Valida si un timestamp es razonable
+  static bool isValidTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final diff = now.difference(timestamp).abs();
+    
+    // El timestamp no puede ser más de 1 año en el pasado o futuro
+    return diff.inDays <= 365;
+  }
+
+  /// Valida si un mensaje JSON es válido
+  static bool isValidMessageJSON(String jsonString) {
+    try {
+      final decoded = jsonDecode(jsonString);
+      
+      // Verificar campos requeridos
+      if (decoded is! Map<String, dynamic>) return false;
+      
+      final requiredFields = ['messageId', 'senderId', 'destinationId', 'encryptedContent', 'ttl'];
+      
+      for (final field in requiredFields) {
+        if (!decoded.containsKey(field)) return false;
+      }
+      
+      // Validar tipos
+      if (decoded['messageId'] is! String) return false;
+      if (decoded['senderId'] is! String) return false;
+      if (decoded['destinationId'] is! String) return false;
+      if (decoded['encryptedContent'] is! String) return false;
+      if (decoded['ttl'] is! int) return false;
+      
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[VALIDATION] ❌ JSON inválido: $e');
+      }
+      return false;
+    }
   }
 }

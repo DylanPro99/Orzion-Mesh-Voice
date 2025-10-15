@@ -9,6 +9,7 @@ import 'services/storage_service.dart';
 import 'models/message_model.dart';
 import 'models/stored_message.dart';
 import 'models/neighbor_node.dart';
+import 'models/contact_model.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/settings_screen.dart';
@@ -40,6 +41,9 @@ void main() async {
     }
     if (!Hive.isAdapterRegistered(2)) {
       Hive.registerAdapter(NeighborNodeAdapter());
+    }
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(ContactModelAdapter());
     }
     
     // Inicializar storage

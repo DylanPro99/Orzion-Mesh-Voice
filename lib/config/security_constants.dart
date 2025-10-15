@@ -1,81 +1,42 @@
-/// Constantes de seguridad para Orzion Mesh
+/// Constantes de seguridad para el sistema de cifrado
 class SecurityConstants {
-  // Límites de mensajes
-  static const int maxMessageLength = 10000; // 10KB máximo por mensaje
-  static const int minMessageLength = 1;
-  static const int maxTTL = 10; // Máximo 10 saltos
-  static const int defaultTTL = 5;
-  
-  // Rate limiting
-  static const int maxMessagesPerMinute = 30;
-  static const int maxMessagesPerHour = 500;
-  static const Duration rateLimitWindow = Duration(minutes: 1);
-  
-  // Detección de duplicados
-  static const Duration duplicateDetectionWindow = Duration(minutes: 30);
-  static const int maxDuplicateCache = 1000;
-  
-  // Blacklist
-  static const int maxBlacklistSize = 100;
-  static const Duration blacklistDuration = Duration(hours: 24);
-  static const int suspiciousActivityThreshold = 10; // Acciones sospechosas antes de blacklist
-  
-  // Encriptación
+  /// Longitud mínima requerida para claves de cifrado
+  /// Esta es una política de seguridad estricta para prevenir ataques de fuerza bruta
   static const int minKeyLength = 32;
-  static const int ivLength = 16;
   
-  // Validación de nodos
-  static const int maxNodeIdLength = 128;
-  static const int minNodeIdLength = 8;
+  /// Longitud máxima de claves de cifrado
+  static const int maxKeyLength = 256;
   
-  // Timeouts
-  static const Duration messageTimeout = Duration(minutes: 5);
-  static const Duration ackTimeout = Duration(seconds: 30);
+  /// Tamaño del IV (Initialization Vector) para AES
+  static const int ivSize = 16;
   
-  // Limpieza automática
-  static const Duration messageRetentionPeriod = Duration(days: 30);
-  static const Duration neighborInactivityPeriod = Duration(hours: 24);
+  /// Tamaño de la clave AES-256
+  static const int aesKeySize = 32;
   
-  // Validación GPS
-  static const double maxLatitude = 90.0;
-  static const double minLatitude = -90.0;
-  static const double maxLongitude = 180.0;
-  static const double minLongitude = -180.0;
-}
-
-/// Tipos de eventos de seguridad
-enum SecurityEventType {
-  rateLimitExceeded,
-  invalidMessage,
-  duplicateMessage,
-  blacklistedNode,
-  encryptionFailure,
-  invalidTTL,
-  messageTooBig,
-  suspiciousActivity,
-}
-
-/// Evento de seguridad
-class SecurityEvent {
-  final SecurityEventType type;
-  final String nodeId;
-  final String description;
-  final DateTime timestamp;
-  final Map<String, dynamic>? metadata;
-
-  SecurityEvent({
-    required this.type,
-    required this.nodeId,
-    required this.description,
-    DateTime? timestamp,
-    this.metadata,
-  }) : timestamp = timestamp ?? DateTime.now();
-
-  Map<String, dynamic> toJson() => {
-        'type': type.toString(),
-        'nodeId': nodeId,
-        'description': description,
-        'timestamp': timestamp.toIso8601String(),
-        'metadata': metadata,
-      };
+  /// Tamaño del HMAC
+  static const int hmacSize = 32;
+  
+  /// Tiempo máximo de vida para mensajes (TTL)
+  static const int maxTTL = 15;
+  
+  /// TTL por defecto para nuevos mensajes
+  static const int defaultTTL = 10;
+  
+  /// Tamaño máximo de mensaje en bytes
+  static const int maxMessageSize = 512;
+  
+  /// Número máximo de saltos permitidos
+  static const int maxHops = 10;
+  
+  /// Tiempo de expiración para mensajes procesados (en horas)
+  static const int messageExpirationHours = 24;
+  
+  /// Algoritmo de hash usado para derivación de claves
+  static const String hashAlgorithm = 'SHA-256';
+  
+  /// Algoritmo de cifrado simétrico
+  static const String encryptionAlgorithm = 'AES-256-CBC';
+  
+  /// Algoritmo de MAC (Message Authentication Code)
+  static const String macAlgorithm = 'HMAC-SHA256';
 }

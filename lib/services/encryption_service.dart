@@ -1,74 +1,133 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'dart:math';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
+import '../config/security_constants.dart';
 
 class EncryptionService {
   static final EncryptionService _instance = EncryptionService._internal();
   factory EncryptionService() => _instance;
   EncryptionService._internal();
 
-  final _secureStorage = const FlutterSecureStorage();
-  static const String _keyStorageKey = 'mesh_encryption_key';
-  
-  String? _cachedKey;
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
-  /// Obtener o generar la clave de cifrado
+  static const String _keyName = 'orzion_mesh_encryption_key';
+
   Future<String> getOrCreateEncryptionKey() async {
-    // Usar caché en memoria si está disponible
-    if (_cachedKey != null) {
-      return _cachedKey!;
-    }
-
     try {
-      // Intentar leer clave almacenada
-      String? storedKey = await _secureStorage.read(key: _keyStorageKey);
-      
-      if (storedKey != null && storedKey.isNotEmpty) {
-        _cachedKey = storedKey;
-        return storedKey;
+      if (kDebugMode) {
+        print('[ENCRYPTION] 🔐 Obteniendo o creando clave de cifrado...');
       }
 
-      // Generar nueva clave si no existe
+      // Intentar obtener clave existente
+      final existingKey = await _storage.read(key: _keyName);
+      
+      if (existingKey != null && existingKey.length >= SecurityConstants.minKeyLength) {
+        if (kDebugMode) {
+          print('[ENCRYPTION] ✅ Clave existente encontrada (${existingKey.length} caracteres)');
+        }
+        return existingKey;
+      }
+
+      // Generar nueva clave si no existe o es muy corta
+      if (kDebugMode) {
+        print('[ENCRYPTION] 🔑 Generando nueva clave de cifrado...');
+      }
+
       final newKey = _generateSecureKey();
-      await _secureStorage.write(key: _keyStorageKey, value: newKey);
-      _cachedKey = newKey;
+      
+      // Guardar nueva clave
+      await _storage.write(key: _keyName, value: newKey);
+      
+      if (kDebugMode) {
+        print('[ENCRYPTION] ✅ Nueva clave generada y guardada (${newKey.length} caracteres)');
+      }
       
       return newKey;
     } catch (e) {
-      // Fallback a clave basada en ID de dispositivo si SecureStorage falla
-      // Esto no es ideal pero es mejor que una clave hardcodeada
-      final deviceKey = _generateDeviceBasedKey();
-      _cachedKey = deviceKey;
-      return deviceKey;
+      if (kDebugMode) {
+        print('[ENCRYPTION] ❌ Error obteniendo/creando clave: $e');
+      }
+      
+      // Fallback: generar clave temporal (menos segura pero funcional)
+      final fallbackKey = _generateFallbackKey();
+      if (kDebugMode) {
+        print('[ENCRYPTION] ⚠️ Usando clave de respaldo temporal');
+      }
+      
+      return fallbackKey;
     }
   }
 
-  /// Generar clave criptográficamente segura de 32 caracteres
   String _generateSecureKey() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
-    return base64UrlEncode(bytes).substring(0, 32);
+    // Generar múltiples UUIDs y concatenarlos para crear una clave larga
+    const uuid = Uuid();
+    final parts = <String>[];
+    
+    // Generar 8 UUIDs (cada uno ~36 caracteres) = ~288 caracteres total
+    for (int i = 0; i < 8; i++) {
+      parts.add(uuid.v4());
+    }
+    
+    // Concatenar y limpiar guiones
+    final key = parts.join().replaceAll('-', '');
+    
+    // Asegurar longitud mínima
+    if (key.length < SecurityConstants.minKeyLength) {
+      return key + _generateRandomString(SecurityConstants.minKeyLength - key.length);
+    }
+    
+    return key;
   }
 
-  /// Generar clave basada en características del dispositivo (fallback)
-  String _generateDeviceBasedKey() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final randomPart = Random.secure().nextInt(999999).toString().padLeft(6, '0');
-    final combined = '$timestamp-$randomPart-orzion-mesh';
-    final hash = sha256.convert(utf8.encode(combined)).toString();
-    return hash.substring(0, 32);
+  String _generateFallbackKey() {
+    // Clave de respaldo más simple pero aún segura
+    const uuid = Uuid();
+    final key = uuid.v4() + uuid.v4() + uuid.v4() + uuid.v4();
+    return key.replaceAll('-', '');
   }
 
-  /// Limpiar clave de la caché (útil para cerrar sesión)
-  void clearCachedKey() {
-    _cachedKey = null;
+  String _generateRandomString(int length) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final random = DateTime.now().millisecondsSinceEpoch;
+    final buffer = StringBuffer();
+    
+    for (int i = 0; i < length; i++) {
+      buffer.write(chars[(random + i) % chars.length]);
+    }
+    
+    return buffer.toString();
   }
 
-  /// Regenerar clave completamente
-  Future<String> regenerateKey() async {
-    await _secureStorage.delete(key: _keyStorageKey);
-    _cachedKey = null;
-    return await getOrCreateEncryptionKey();
+  Future<void> deleteEncryptionKey() async {
+    try {
+      await _storage.delete(key: _keyName);
+      if (kDebugMode) {
+        print('[ENCRYPTION] 🗑️ Clave de cifrado eliminada');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[ENCRYPTION] ❌ Error eliminando clave: $e');
+      }
+    }
+  }
+
+  Future<bool> hasEncryptionKey() async {
+    try {
+      final key = await _storage.read(key: _keyName);
+      return key != null && key.length >= SecurityConstants.minKeyLength;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[ENCRYPTION] ❌ Error verificando clave: $e');
+      }
+      return false;
+    }
   }
 }
