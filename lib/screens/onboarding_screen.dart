@@ -78,18 +78,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _initError = null;
     });
     
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const LoadingScreen(
-          message: 'Inicializando Orzion Mesh...',
-        ),
-        transitionDuration: const Duration(milliseconds: 300),
-      ),
-    );
-    
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Navegar directamente a la pantalla principal
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/home');
+    }
 
+    // Inicializar servicios en segundo plano
     try {
       debugPrint('🚀 Iniciando servicios de red...');
       final hasFullFunctionality = await _meshManager.initializeNetworkServices();
@@ -112,20 +106,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           );
         }
-        
-        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e, stackTrace) {
       debugPrint('❌ Error crítico durante inicialización: $e');
       debugPrint('Stack trace: $stackTrace');
 
       if (mounted) {
-        setState(() {
-          _initError = e.toString();
-        });
-        
-        Navigator.pop(context); // Volver a onboarding
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('❌ Error: ${e.toString()}\n\nVerifica permisos en Configuración.'),

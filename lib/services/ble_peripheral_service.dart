@@ -9,163 +9,155 @@ class BLEPeripheralService {
   factory BLEPeripheralService() => _instance;
   BLEPeripheralService._internal();
 
-  static const String SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
-  static const String CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
-  
-  final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
-  bool _isAdvertising = false;
   bool _isInitialized = false;
-  String? _currentMessageJson;
-  Timer? _advertisingTimer;
+  bool _isAdvertising = false;
+  StreamSubscription? _peripheralStateSubscription;
+  
+  // UUIDs para el servicio GATT
+  static const String serviceUuid = "0000ffe0-0000-1000-8000-00805f9b34fb";
+  static const String characteristicUuid = "0000ffe1-0000-1000-8000-00805f9b34fb";
+  
+  MessageModel? _currentMessage;
 
   Future<void> initialize() async {
     if (_isInitialized) {
       if (kDebugMode) {
-        print('[BLE Peripheral] ℹ️ Ya inicializado');
+        print('[BLE_PERIPHERAL] ℹ️ Ya inicializado');
       }
       return;
     }
 
     try {
       if (kDebugMode) {
-        print('[BLE Peripheral] 🚀 Inicializando modo peripheral');
+        print('[BLE_PERIPHERAL] 🚀 Inicializando servicio peripheral BLE');
       }
 
-      // Verificar soporte de peripheral mode
-      final isSupported = await _peripheral.isSupported;
+      // Verificar si el dispositivo soporta BLE peripheral
+      final isSupported = await FlutterBlePeripheral.isSupported;
       if (!isSupported) {
         if (kDebugMode) {
-          print('[BLE Peripheral] ⚠️ Peripheral mode no soportado en este dispositivo');
+          print('[BLE_PERIPHERAL] ⚠️ BLE Peripheral no soportado en este dispositivo');
         }
+        _isInitialized = true;
         return;
       }
 
+      // Monitorear estado del peripheral
+      _peripheralStateSubscription = FlutterBlePeripheral.peripheralState.listen((state) {
+        if (kDebugMode) {
+          print('[BLE_PERIPHERAL] 📡 Estado peripheral: $state');
+        }
+        
+        _isAdvertising = state == PeripheralState.advertising;
+      });
+
       _isInitialized = true;
-
+      
       if (kDebugMode) {
-        print('[BLE Peripheral] ✅ Peripheral mode inicializado');
+        print('[BLE_PERIPHERAL] ✅ Servicio peripheral inicializado correctamente');
       }
-
     } catch (e) {
       if (kDebugMode) {
-        print('[BLE Peripheral] ❌ Error inicializando: $e');
+        print('[BLE_PERIPHERAL] ❌ Error inicializando peripheral: $e');
       }
-      _isInitialized = false;
+      _isInitialized = true; // Marcar como inicializado para evitar loops
     }
   }
 
   Future<void> startAdvertising(MessageModel message) async {
     if (!_isInitialized) {
-      if (kDebugMode) {
-        print('[BLE Peripheral] ⚠️ No inicializado, omitiendo advertising');
-      }
-      return;
+      await initialize();
     }
 
     try {
-      final messageJson = message.toJsonString();
-      _currentMessageJson = messageJson;
-
+      _currentMessage = message;
+      
       if (kDebugMode) {
-        print('[BLE Peripheral] 📡 Iniciando advertising de mensaje');
-        print('[BLE Peripheral] ℹ️ Mensaje ID: ${message.messageId.substring(0, 8)}...');
+        print('[BLE_PERIPHERAL] 📡 Iniciando advertising con mensaje');
       }
 
-      // Detener advertising previo si existe
-      await stopAdvertising();
-
-      // Preparar datos de advertising
-      // Nota: BLE advertising tiene límite de ~31 bytes en el payload
-      // Para mensajes más grandes, se debe usar el GATT server
-      
-      final messageBytes = utf8.encode(messageJson);
-      final truncatedBytes = messageBytes.length > 20 
-          ? messageBytes.sublist(0, 20) 
-          : messageBytes;
-
-      // Configurar advertising data
-      final advertiseData = AdvertiseData(
-        serviceUuid: SERVICE_UUID,
-        localName: 'Orzion-${message.senderId.substring(0, 6)}',
-        manufacturerId: 0x004C, // ID genérico
-        manufacturerData: truncatedBytes,
-        includeDeviceName: false,
-      );
-
-      // Configurar advertising settings
-      final advertiseSettings = AdvertiseSettings(
-        advertiseMode: AdvertiseMode.advertiseModeBalanced,
-        txPowerLevel: AdvertiseTxPower.advertiseTxPowerHigh,
-        connectable: true,
-        timeout: 0, // Sin timeout, advertising continuo
+      // Configurar datos de advertising
+      final advertisementData = AdvertisementData(
+        localName: 'Orzion-${message.senderId.substring(0, 8)}',
+        serviceUuids: [serviceUuid],
+        manufacturerData: _encodeMessageData(message),
       );
 
       // Iniciar advertising
-      await _peripheral.start(
-        advertiseData: advertiseData,
-        advertiseSettings: advertiseSettings,
+      await FlutterBlePeripheral.start(
+        advertiseMode: AdvertiseMode.lowLatency,
+        connectable: true,
+        timeout: 0, // Sin timeout
+        advertisementData: advertisementData,
       );
 
-      _isAdvertising = true;
-
       if (kDebugMode) {
-        print('[BLE Peripheral] ✅ Advertising activo');
-        print('[BLE Peripheral] ℹ️ Service UUID: $SERVICE_UUID');
-        print('[BLE Peripheral] ℹ️ Mensaje en advertising: ${truncatedBytes.length} bytes');
-        print('[BLE Peripheral] ℹ️ Para mensaje completo, los nodos deben conectarse');
+        print('[BLE_PERIPHERAL] ✅ Advertising iniciado exitosamente');
       }
-
-      // Programar detención automática después de 30 segundos
-      // Esto evita advertising indefinido del mismo mensaje
-      _advertisingTimer?.cancel();
-      _advertisingTimer = Timer(const Duration(seconds: 30), () {
-        stopAdvertising();
-      });
-
     } catch (e) {
       if (kDebugMode) {
-        print('[BLE Peripheral] ❌ Error en advertising: $e');
+        print('[BLE_PERIPHERAL] ❌ Error iniciando advertising: $e');
       }
-      _isAdvertising = false;
+      // No lanzar excepción para no romper el flujo
     }
   }
 
   Future<void> stopAdvertising() async {
-    if (!_isAdvertising) return;
-
     try {
-      await _peripheral.stop();
-      _isAdvertising = false;
-      _advertisingTimer?.cancel();
-
-      if (kDebugMode) {
-        print('[BLE Peripheral] 🛑 Advertising detenido');
+      if (_isAdvertising) {
+        await FlutterBlePeripheral.stop();
+        
+        if (kDebugMode) {
+          print('[BLE_PERIPHERAL] 🛑 Advertising detenido');
+        }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('[BLE Peripheral] ⚠️ Error deteniendo advertising: $e');
+        print('[BLE_PERIPHERAL] ⚠️ Error deteniendo advertising: $e');
       }
     }
   }
 
-  /// Obtener el mensaje actual que se está anunciando
-  String? getCurrentMessage() {
-    return _currentMessageJson;
-  }
-
-  /// Verificar si está anunciando
   bool isAdvertising() {
     return _isAdvertising;
   }
 
-  void dispose() {
-    _advertisingTimer?.cancel();
-    stopAdvertising();
-    _currentMessageJson = null;
-    _isInitialized = false;
+  MessageModel? getCurrentMessage() {
+    return _currentMessage;
+  }
 
+  /// Codifica datos del mensaje para manufacturer data (limitado a 29 bytes)
+  Map<int, List<int>> _encodeMessageData(MessageModel message) {
+    try {
+      // Crear un resumen del mensaje para manufacturer data
+      final messageSummary = {
+        'id': message.messageId.substring(0, 8),
+        'ttl': message.ttl,
+        'hops': message.hopHistory.length,
+      };
+      
+      final jsonString = jsonEncode(messageSummary);
+      final bytes = utf8.encode(jsonString);
+      
+      // Limitar a 29 bytes (límite de manufacturer data)
+      final limitedBytes = bytes.length > 29 ? bytes.sublist(0, 29) : bytes;
+      
+      return {0xFFFF: limitedBytes}; // Usar manufacturer ID personalizado
+    } catch (e) {
+      if (kDebugMode) {
+        print('[BLE_PERIPHERAL] ⚠️ Error codificando datos: $e');
+      }
+      return {};
+    }
+  }
+
+  void dispose() {
+    _peripheralStateSubscription?.cancel();
+    stopAdvertising();
+    _isInitialized = false;
+    
     if (kDebugMode) {
-      print('[BLE Peripheral] 🧹 Servicio peripheral limpiado');
+      print('[BLE_PERIPHERAL] 🧹 Servicio peripheral limpiado');
     }
   }
 }

@@ -1,10 +1,3 @@
-import 'dart:convert';
-
-enum AckType {
-  delivered, // Mensaje entregado
-  read, // Mensaje leído
-}
-
 class AckMessage {
   final String originalMessageId;
   final String ackType;
@@ -35,9 +28,4 @@ class AckMessage {
         recipientId: json['recipientId'],
         timestamp: DateTime.parse(json['timestamp']),
       );
-
-  String toJsonString() => jsonEncode(toJson());
-
-  factory AckMessage.fromJsonString(String jsonString) =>
-      AckMessage.fromJson(jsonDecode(jsonString));
 }
