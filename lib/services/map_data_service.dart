@@ -16,141 +16,179 @@ class MapDataService {
   bool get hasBackgroundConsent => _hasBackgroundConsent;
 
   Future<bool> requestGpsPermission() async {
-    if (kDebugMode) {
-      print('[PERMISSIONS] Solicitando permiso de GPS (doble opt-in)');
-    }
-
-    final locationStatus = await Permission.location.request();
-    
-    if (locationStatus.isGranted) {
-      _hasGpsConsent = true;
+    try {
       if (kDebugMode) {
-        print('[PERMISSIONS] ✓ Permiso de GPS concedido');
+        print('[MAP] 🔐 Solicitando permiso de ubicación...');
       }
-      return true;
-    } else {
+
+      final permission = await Permission.location.request();
+      
+      if (permission == PermissionStatus.granted) {
+        _hasGpsConsent = true;
+        if (kDebugMode) {
+          print('[MAP] ✅ Permiso de ubicación concedido');
+        }
+        return true;
+      } else {
+        _hasGpsConsent = false;
+        if (kDebugMode) {
+          print('[MAP] ❌ Permiso de ubicación denegado');
+        }
+        return false;
+      }
+    } catch (e) {
       if (kDebugMode) {
-        print('[PERMISSIONS] ✗ Permiso de GPS denegado');
+        print('[MAP] ❌ Error solicitando permiso de ubicación: $e');
       }
       return false;
     }
   }
 
   Future<bool> requestBackgroundPermission() async {
-    if (kDebugMode) {
-      print('[PERMISSIONS] Solicitando permiso de uso en segundo plano (doble opt-in)');
-    }
-
-    final locationAlwaysStatus = await Permission.locationAlways.request();
-    
-    if (locationAlwaysStatus.isGranted) {
-      _hasBackgroundConsent = true;
+    try {
       if (kDebugMode) {
-        print('[PERMISSIONS] ✓ Permiso de segundo plano concedido - Nodo puede retransmitir');
+        print('[MAP] 🔐 Solicitando permiso de ubicación en segundo plano...');
       }
-      return true;
-    } else {
+
+      final permission = await Permission.locationAlways.request();
+      
+      if (permission == PermissionStatus.granted) {
+        _hasBackgroundConsent = true;
+        if (kDebugMode) {
+          print('[MAP] ✅ Permiso de ubicación en segundo plano concedido');
+        }
+        return true;
+      } else {
+        _hasBackgroundConsent = false;
+        if (kDebugMode) {
+          print('[MAP] ❌ Permiso de ubicación en segundo plano denegado');
+        }
+        return false;
+      }
+    } catch (e) {
       if (kDebugMode) {
-        print('[PERMISSIONS] ✗ Permiso de segundo plano denegado - Nodo NO puede retransmitir');
+        print('[MAP] ❌ Error solicitando permiso de segundo plano: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    try {
+      if (kDebugMode) {
+        print('[MAP] 🔐 Solicitando permiso de notificaciones...');
+      }
+
+      final permission = await Permission.notification.request();
+      
+      if (permission == PermissionStatus.granted) {
+        if (kDebugMode) {
+          print('[MAP] ✅ Permiso de notificaciones concedido');
+        }
+        return true;
+      } else {
+        if (kDebugMode) {
+          print('[MAP] ❌ Permiso de notificaciones denegado');
+        }
+        return false;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[MAP] ❌ Error solicitando permiso de notificaciones: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<bool> hasBackgroundPermission() async {
+    try {
+      final permission = await Permission.locationAlways.status;
+      return permission == PermissionStatus.granted;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[MAP] ❌ Error verificando permiso de segundo plano: $e');
       }
       return false;
     }
   }
 
   Future<Map<String, double>?> getCurrentLocation() async {
-    if (!_hasGpsConsent) {
-      if (kDebugMode) {
-        print('[GPS] No se puede obtener ubicación - Sin consentimiento GPS');
-      }
-      return null;
-    }
-
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
+      if (!_hasGpsConsent) {
         if (kDebugMode) {
-          print('[GPS] Servicio de ubicación deshabilitado');
+          print('[MAP] ⚠️ Sin permiso de ubicación, usando ubicación por defecto');
         }
         return null;
       }
 
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          return null;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        return null;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 10),
       );
 
       _lastKnownPosition = position;
 
+      if (kDebugMode) {
+        print('[MAP] 📍 Ubicación obtenida: ${position.latitude}, ${position.longitude}');
+      }
+
       return {
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'accuracy': position.accuracy,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
       };
     } catch (e) {
       if (kDebugMode) {
-        print('[GPS] Error obteniendo ubicación: $e');
+        print('[MAP] ❌ Error obteniendo ubicación: $e');
       }
       return null;
     }
   }
 
-  Future<void> sendNodeData(String nodeId, Map<String, double> gpsCoords) async {
-    if (!_hasGpsConsent) {
+  Future<void> sendRoute(String messageId, List<String> hopNodeIds) async {
+    try {
       if (kDebugMode) {
-        print('[MAP DATA] No se puede enviar datos de nodo - Sin consentimiento GPS');
+        print('[MAP] 🗺️ Enviando ruta del mensaje $messageId');
+        print('[MAP] 📍 Saltos: ${hopNodeIds.length}');
       }
-      return;
+      
+      // En una implementación real, aquí se enviaría la información de ruta
+      // a un servicio de mapeo o almacenamiento
+      
+    } catch (e) {
+      if (kDebugMode) {
+        print('[MAP] ❌ Error enviando ruta: $e');
+      }
     }
-
-    if (kDebugMode) {
-      print('[MAP DATA] Enviando datos de nodo $nodeId: $gpsCoords');
-    }
-
   }
 
-  Future<void> sendRoute(String messageId, List<String> hopList) async {
-    if (!_hasGpsConsent) {
+  Future<void> sendNodeData(String nodeId, Map<String, double> location) async {
+    try {
       if (kDebugMode) {
-        print('[MAP DATA] No se puede enviar ruta - Sin consentimiento GPS');
+        print('[MAP] 📍 Enviando datos del nodo $nodeId');
+        print('[MAP] 📍 Ubicación: ${location['latitude']}, ${location['longitude']}');
       }
-      return;
+      
+      // En una implementación real, aquí se enviaría la información del nodo
+      // a un servicio de mapeo o almacenamiento
+      
+    } catch (e) {
+      if (kDebugMode) {
+        print('[MAP] ❌ Error enviando datos del nodo: $e');
+      }
     }
-
-    if (kDebugMode) {
-      print('[MAP DATA] Enviando ruta para mensaje $messageId');
-      print('[MAP DATA] Ruta (${hopList.length} saltos): ${hopList.join(' -> ')}');
-    }
-
-  }
-
-  Future<bool> hasBackgroundPermission() async {
-    return _hasBackgroundConsent;
   }
 
   void revokeGpsConsent() {
     _hasGpsConsent = false;
     if (kDebugMode) {
-      print('[PERMISSIONS] Consentimiento GPS revocado');
+      print('[MAP] 🚫 Consentimiento GPS revocado');
     }
   }
 
   void revokeBackgroundConsent() {
     _hasBackgroundConsent = false;
     if (kDebugMode) {
-      print('[PERMISSIONS] Consentimiento de segundo plano revocado');
+      print('[MAP] 🚫 Consentimiento de segundo plano revocado');
     }
   }
-
-  Position? get lastKnownPosition => _lastKnownPosition;
 }

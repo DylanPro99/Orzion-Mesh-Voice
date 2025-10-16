@@ -1,24 +1,50 @@
+import 'package:hive/hive.dart';
 
-class ContactModel {
+part 'contact_model.g.dart';
+
+@HiveType(typeId: 3)
+class ContactModel extends HiveObject {
+  @HiveField(0)
   final String nodeId;
+
+  @HiveField(1)
   final String alias;
+
+  @HiveField(2)
   final DateTime addedAt;
+
+  @HiveField(3)
+  final DateTime? lastSeen;
+
+  @HiveField(4)
+  final int messageCount;
 
   ContactModel({
     required this.nodeId,
     required this.alias,
-    DateTime? addedAt,
-  }) : addedAt = addedAt ?? DateTime.now();
+    required this.addedAt,
+    this.lastSeen,
+    this.messageCount = 0,
+  });
 
-  Map<String, dynamic> toJson() => {
-        'nodeId': nodeId,
-        'alias': alias,
-        'addedAt': addedAt.toIso8601String(),
-      };
+  ContactModel copyWith({
+    String? alias,
+    DateTime? lastSeen,
+    int? messageCount,
+  }) {
+    return ContactModel(
+      nodeId: nodeId,
+      alias: alias ?? this.alias,
+      addedAt: addedAt,
+      lastSeen: lastSeen ?? this.lastSeen,
+      messageCount: messageCount ?? this.messageCount,
+    );
+  }
 
-  factory ContactModel.fromJson(Map<String, dynamic> json) => ContactModel(
-        nodeId: json['nodeId'],
-        alias: json['alias'],
-        addedAt: DateTime.parse(json['addedAt']),
-      );
+  Duration get timeSinceLastSeen {
+    if (lastSeen == null) return const Duration(days: 999);
+    return DateTime.now().difference(lastSeen!);
+  }
+
+  bool get isActive => timeSinceLastSeen.inHours < 24;
 }
