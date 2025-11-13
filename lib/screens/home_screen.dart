@@ -285,10 +285,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final messages = _meshManager.getReceivedMessages();
+    // final messages = _meshManager.getReceivedMessages();//
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      // backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         title: Row(
