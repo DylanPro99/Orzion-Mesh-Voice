@@ -3,65 +3,72 @@ workflows:
     name: Android Release Build
     max_build_duration: 60
     instance_type: mac_mini_m1
-    environment:
-      flutter: stable
-      groups:
-        - google_play # Configura tus credenciales en CodeMagic UI
-      vars:
-        PACKAGE_NAME: "com.orzion.mesh"
-    
+
     triggering:
       events:
         - push
-      branch_patterns:
-        - pattern: 'main'
-          include: true
-          source: true
-    
+      cancel_previous_builds: true
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - google_credentials
+      vars:
+        PACKAGE_NAME: "com.orzion.mesh"
+        CM_FLUTTER_CLEAN: "true"
+
     scripts:
-      - name: Clean previous builds (ULTRA-AGRESIVO)
+      - name: FORZAR LIMPIEZA TOTAL DE CACHÉ
         script: |
-          echo "🧹 Limpieza ultra-agresiva iniciada..."
+          echo "🧹 Eliminando TODA la caché de compilación..."
           flutter clean
           rm -rf build/
           rm -rf .dart_tool/
-          rm -rf .flutter-plugins
-          rm -rf .flutter-plugins-dependencies
-          rm -rf .packages
           rm -rf pubspec.lock
-          rm -rf ios/Pods/
-          rm -rf ios/Podfile.lock
-          rm -rf ~/.pub-cache/hosted/pub.dev/flutter_p2p_connection-*
-          rm -rf ~/.gradle/caches/
-          echo "✅ Limpieza completada - Build 100% limpio garantizado"
-      
-      - name: Get Flutter packages
+          rm -rf ~/.pub-cache/
+          rm -rf /tmp/flutter_tools.*
+          rm -rf $HOME/.dartServer
+          echo "✅ Caché eliminada completamente"
+
+      - name: Get Flutter packages (fresh)
         script: |
           flutter packages pub get
-      
+
+      - name: Verify wifi_direct_service.dart
+        script: |
+          echo "📋 Verificando que NO existan tipos problemáticos..."
+          if grep -E "WifiP2pDevice|Socket|FlutterP2pConnection\(\)" lib/services/wifi_direct_service.dart; then
+            echo "❌ ERROR: Archivo contiene código antiguo"
+            exit 1
+          else
+            echo "✅ Archivo limpio - sin tipos problemáticos"
+          fi
+
       - name: Analyze code
         script: |
           flutter analyze
-      
+
       - name: Run tests
         script: |
           flutter test || true
-      
+
       - name: Build APK
         script: |
           flutter build apk --release --split-per-abi
-      
+
       - name: Build App Bundle
         script: |
           flutter build appbundle --release
-    
+
     artifacts:
       - build/app/outputs/**/*.apk
       - build/app/outputs/**/*.aab
       - build/**/outputs/**/*.json
       - build/**/outputs/**/mapping.txt
       - flutter_drive.log
-    
+
     publishing:
       email:
         recipients:
